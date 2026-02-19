@@ -52,14 +52,14 @@ async def start(message: Message):
     try:
         await message.answer(
             "🤖 <b>AI Бот</b>\n\n"
-            "Доступ к AI стоит 100 ⭐\n"
+            "Доступ к AI стоит 1000 KZT\n"
             "Нажмите /buy чтобы оплатить."
         )
     except TelegramRetryAfter as e:
         await asyncio.sleep(e.timeout)
         await message.answer(
             "🤖 <b>AI Бот</b>\n\n"
-            "Доступ к AI стоит 100 ⭐\n"
+            "Доступ к AI стоит 1000 KZT\n"
             "Нажмите /buy чтобы оплатить."
         )
 
@@ -75,7 +75,7 @@ async def buy(message: Message):
     if elapsed < MESSAGE_DELAY:
         await asyncio.sleep(MESSAGE_DELAY - elapsed)
 
-    prices = [LabeledPrice(label="Доступ к AI", amount=100000)]  # 100.00 KZT или 100 Stars
+    prices = [LabeledPrice(label="Доступ к AI", amount=100000)]  # 1000.00 KZT
 
     try:
         await bot.send_invoice(
