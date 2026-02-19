@@ -13,11 +13,10 @@ from openai import OpenAI
 
 import config
 
-# === Инициализация ===
-bot = Bot{
+bot = Bot(
     token=config.BOT_TOKEN,
     default=DefaultBotProperties(parse_mode=ParseMode.HTML)
-}
+)
 
 dp = Dispatcher()
 client = OpenAI(api_key=config.OPENAI_API_KEY)
