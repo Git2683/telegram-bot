@@ -5,9 +5,10 @@ from aiogram.types import Message, LabeledPrice, PreCheckoutQuery
 from aiogram.filters import CommandStart
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
-from aiogram.dispatcher.middlewares.throttling import ThrottlingMiddleware
 from aiogram.utils.exceptions import RetryAfter
 from openai import OpenAI
+from collections import defaultdict
+import time
 
 # -------------------------------
 # Проверка переменных окружения
@@ -26,8 +27,13 @@ if not OPENAI_API_KEY:
 # -------------------------------
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
-dp.update.middleware(ThrottlingMiddleware(limit=1))  # 1 сообщение/секунда на пользователя
 client = OpenAI(api_key=OPENAI_API_KEY)
+
+# -------------------------------
+# Ограничение скорости сообщений (Flood control)
+# -------------------------------
+last_message_time = defaultdict(lambda: 0)
+MESSAGE_DELAY = 1  # секунда между сообщениями для одного пользователя
 
 # Простая память пользователей (для примера)
 paid_users = set()
@@ -37,6 +43,10 @@ paid_users = set()
 # =========================
 @dp.message(CommandStart())
 async def start(message: Message):
+    user_id = message.from_user.id
+    elapsed = time.time() - last_message_time[user_id]
+    if elapsed < MESSAGE_DELAY:
+        await asyncio.sleep(MESSAGE_DELAY - elapsed)
     try:
         await message.answer(
             "🤖 <b>AI Бот</b>\n\n"
@@ -50,12 +60,18 @@ async def start(message: Message):
             "Доступ к AI стоит 100 ⭐\n"
             "Нажмите /buy чтобы оплатить."
         )
+    last_message_time[user_id] = time.time()
 
 # =========================
 # Команда /buy — отправка счета
 # =========================
 @dp.message(F.text == "/buy")
 async def buy(message: Message):
+    user_id = message.from_user.id
+    elapsed = time.time() - last_message_time[user_id]
+    if elapsed < MESSAGE_DELAY:
+        await asyncio.sleep(MESSAGE_DELAY - elapsed)
+
     prices = [LabeledPrice(label="Доступ к AI", amount=10000)]  # 100.00 RUB или 100 Stars
 
     try:
@@ -81,6 +97,7 @@ async def buy(message: Message):
             prices=prices,
             start_parameter="ai-access",
         )
+    last_message_time[user_id] = time.time()
 
 # =========================
 # Подтверждение оплаты
@@ -91,12 +108,19 @@ async def pre_checkout(pre_checkout_query: PreCheckoutQuery):
 
 @dp.message(F.successful_payment)
 async def successful_payment(message: Message):
-    paid_users.add(message.from_user.id)
+    user_id = message.from_user.id
+    paid_users.add(user_id)
+
+    elapsed = time.time() - last_message_time[user_id]
+    if elapsed < MESSAGE_DELAY:
+        await asyncio.sleep(MESSAGE_DELAY - elapsed)
+
     try:
         await message.answer("✅ Оплата прошла успешно! Теперь можете писать мне сообщения.")
     except RetryAfter as e:
         await asyncio.sleep(e.timeout)
         await message.answer("✅ Оплата прошла успешно! Теперь можете писать мне сообщения.")
+    last_message_time[user_id] = time.time()
 
 # =========================
 # AI ответы
@@ -106,17 +130,23 @@ async def ai_chat(message: Message):
     user_id = message.from_user.id
 
     if user_id not in paid_users:
+        elapsed = time.time() - last_message_time[user_id]
+        if elapsed < MESSAGE_DELAY:
+            await asyncio.sleep(MESSAGE_DELAY - elapsed)
         try:
             await message.answer("❌ Сначала оплатите доступ через /buy")
         except RetryAfter as e:
             await asyncio.sleep(e.timeout)
             await message.answer("❌ Сначала оплатите доступ через /buy")
+        last_message_time[user_id] = time.time()
         return
 
-    try:
-        # Минимальная задержка, чтобы не попасть под flood
-        await asyncio.sleep(1)
+    # Минимальная задержка, чтобы не попасть под flood
+    elapsed = time.time() - last_message_time[user_id]
+    if elapsed < MESSAGE_DELAY:
+        await asyncio.sleep(MESSAGE_DELAY - elapsed)
 
+    try:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
@@ -138,6 +168,8 @@ async def ai_chat(message: Message):
         # минимальный лог, чтобы Railway не заблокировал
         print("AI Error:", str(e))
 
+    last_message_time[user_id] = time.time()
+
 # =========================
 # Запуск бота
 # =========================
@@ -146,3 +178,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
