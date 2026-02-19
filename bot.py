@@ -1,3 +1,10 @@
+import os
+
+print("=== ENV CHECK ===")
+print("BOT_TOKEN:", os.getenv("BOT_TOKEN"))
+print("OPENAI_API_KEY:", os.getenv("OPENAI_API_KEY"))
+print("=================")
+
 import asyncio
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import (
