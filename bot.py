@@ -75,7 +75,7 @@ async def buy(message: Message):
     if elapsed < MESSAGE_DELAY:
         await asyncio.sleep(MESSAGE_DELAY - elapsed)
 
-    prices = [LabeledPrice(label="Доступ к AI", amount=10000)]  # 100.00 RUB или 100 Stars
+    prices = [LabeledPrice(label="Доступ к AI", amount=100000)]  # 100.00 KZT или 100 Stars
 
     try:
         await bot.send_invoice(
@@ -84,7 +84,7 @@ async def buy(message: Message):
             description="Оплата доступа к AI боту",
             payload="ai_access",
             provider_token=PAYMENTS_PROVIDER_TOKEN or "",
-            currency="RUB",  # Для Stars используйте "XTR"
+            currency="KZT",  # Для Stars используйте "XTR"
             prices=prices,
             start_parameter="ai-access",
         )
