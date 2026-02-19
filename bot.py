@@ -5,6 +5,8 @@ from aiogram.types import Message, LabeledPrice, PreCheckoutQuery
 from aiogram.filters import CommandStart
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
+from aiogram.dispatcher.middlewares.throttling import ThrottlingMiddleware
+from aiogram.utils.exceptions import RetryAfter
 from openai import OpenAI
 
 # -------------------------------
@@ -12,7 +14,7 @@ from openai import OpenAI
 # -------------------------------
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-PAYMENTS_PROVIDER_TOKEN = os.getenv("PAYMENTS_PROVIDER_TOKEN")  # может быть пустым, если Telegram Stars
+PAYMENTS_PROVIDER_TOKEN = os.getenv("PAYMENTS_PROVIDER_TOKEN")  # можно пустым, если Telegram Stars
 
 if not BOT_TOKEN:
     raise ValueError("❌ BOT_TOKEN не задан! Добавьте его в Variables сервиса Railway.")
@@ -24,6 +26,7 @@ if not OPENAI_API_KEY:
 # -------------------------------
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
+dp.update.middleware(ThrottlingMiddleware(limit=1))  # 1 сообщение/секунда на пользователя
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 # Простая память пользователей (для примера)
@@ -34,11 +37,19 @@ paid_users = set()
 # =========================
 @dp.message(CommandStart())
 async def start(message: Message):
-    await message.answer(
-        "🤖 <b>AI Бот</b>\n\n"
-        "Доступ к AI стоит 100 ⭐\n"
-        "Нажмите /buy чтобы оплатить."
-    )
+    try:
+        await message.answer(
+            "🤖 <b>AI Бот</b>\n\n"
+            "Доступ к AI стоит 100 ⭐\n"
+            "Нажмите /buy чтобы оплатить."
+        )
+    except RetryAfter as e:
+        await asyncio.sleep(e.timeout)
+        await message.answer(
+            "🤖 <b>AI Бот</b>\n\n"
+            "Доступ к AI стоит 100 ⭐\n"
+            "Нажмите /buy чтобы оплатить."
+        )
 
 # =========================
 # Команда /buy — отправка счета
@@ -47,16 +58,29 @@ async def start(message: Message):
 async def buy(message: Message):
     prices = [LabeledPrice(label="Доступ к AI", amount=10000)]  # 100.00 RUB или 100 Stars
 
-    await bot.send_invoice(
-        chat_id=message.chat.id,
-        title="Доступ к AI",
-        description="Оплата доступа к AI боту",
-        payload="ai_access",
-        provider_token=PAYMENTS_PROVIDER_TOKEN or "",
-        currency="RUB",  # Для Stars используйте "XTR"
-        prices=prices,
-        start_parameter="ai-access",
-    )
+    try:
+        await bot.send_invoice(
+            chat_id=message.chat.id,
+            title="Доступ к AI",
+            description="Оплата доступа к AI боту",
+            payload="ai_access",
+            provider_token=PAYMENTS_PROVIDER_TOKEN or "",
+            currency="RUB",  # Для Stars используйте "XTR"
+            prices=prices,
+            start_parameter="ai-access",
+        )
+    except RetryAfter as e:
+        await asyncio.sleep(e.timeout)
+        await bot.send_invoice(
+            chat_id=message.chat.id,
+            title="Доступ к AI",
+            description="Оплата доступа к AI боту",
+            payload="ai_access",
+            provider_token=PAYMENTS_PROVIDER_TOKEN or "",
+            currency="RUB",
+            prices=prices,
+            start_parameter="ai-access",
+        )
 
 # =========================
 # Подтверждение оплаты
@@ -68,7 +92,11 @@ async def pre_checkout(pre_checkout_query: PreCheckoutQuery):
 @dp.message(F.successful_payment)
 async def successful_payment(message: Message):
     paid_users.add(message.from_user.id)
-    await message.answer("✅ Оплата прошла успешно! Теперь можете писать мне сообщения.")
+    try:
+        await message.answer("✅ Оплата прошла успешно! Теперь можете писать мне сообщения.")
+    except RetryAfter as e:
+        await asyncio.sleep(e.timeout)
+        await message.answer("✅ Оплата прошла успешно! Теперь можете писать мне сообщения.")
 
 # =========================
 # AI ответы
@@ -78,12 +106,17 @@ async def ai_chat(message: Message):
     user_id = message.from_user.id
 
     if user_id not in paid_users:
-        await message.answer("❌ Сначала оплатите доступ через /buy")
+        try:
+            await message.answer("❌ Сначала оплатите доступ через /buy")
+        except RetryAfter as e:
+            await asyncio.sleep(e.timeout)
+            await message.answer("❌ Сначала оплатите доступ через /buy")
         return
 
-    await message.answer("⏳ Думаю...")
-
     try:
+        # Минимальная задержка, чтобы не попасть под flood
+        await asyncio.sleep(1)
+
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
@@ -94,10 +127,16 @@ async def ai_chat(message: Message):
         )
 
         ai_text = response.choices[0].message.content
-        await message.answer(ai_text)
+
+        try:
+            await message.answer(ai_text)
+        except RetryAfter as e:
+            await asyncio.sleep(e.timeout)
+            await message.answer(ai_text)
 
     except Exception as e:
-        await message.answer(f"Ошибка: {e}")
+        # минимальный лог, чтобы Railway не заблокировал
+        print("AI Error:", str(e))
 
 # =========================
 # Запуск бота
@@ -107,4 +146,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
