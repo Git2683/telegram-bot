@@ -2,12 +2,13 @@ import asyncio
 import os
 import time
 from collections import defaultdict
+
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, LabeledPrice, PreCheckoutQuery
 from aiogram.filters import CommandStart
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
-from aiogram.utils.exceptions import RetryAfter
+from aiogram.exceptions import TelegramRetryAfter
 from openai import OpenAI
 
 # -------------------------------
@@ -30,7 +31,7 @@ dp = Dispatcher()
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 # -------------------------------
-# Ограничение скорости сообщений (Flood control)
+# Flood control (ограничение скорости)
 # -------------------------------
 last_message_time = defaultdict(lambda: 0)
 MESSAGE_DELAY = 1  # секунда между сообщениями для одного пользователя
@@ -47,19 +48,21 @@ async def start(message: Message):
     elapsed = time.time() - last_message_time[user_id]
     if elapsed < MESSAGE_DELAY:
         await asyncio.sleep(MESSAGE_DELAY - elapsed)
+
     try:
         await message.answer(
             "🤖 <b>AI Бот</b>\n\n"
             "Доступ к AI стоит 100 ⭐\n"
             "Нажмите /buy чтобы оплатить."
         )
-    except RetryAfter as e:
+    except TelegramRetryAfter as e:
         await asyncio.sleep(e.timeout)
         await message.answer(
             "🤖 <b>AI Бот</b>\n\n"
             "Доступ к AI стоит 100 ⭐\n"
             "Нажмите /buy чтобы оплатить."
         )
+
     last_message_time[user_id] = time.time()
 
 # =========================
@@ -85,7 +88,7 @@ async def buy(message: Message):
             prices=prices,
             start_parameter="ai-access",
         )
-    except RetryAfter as e:
+    except TelegramRetryAfter as e:
         await asyncio.sleep(e.timeout)
         await bot.send_invoice(
             chat_id=message.chat.id,
@@ -97,6 +100,7 @@ async def buy(message: Message):
             prices=prices,
             start_parameter="ai-access",
         )
+
     last_message_time[user_id] = time.time()
 
 # =========================
@@ -117,9 +121,10 @@ async def successful_payment(message: Message):
 
     try:
         await message.answer("✅ Оплата прошла успешно! Теперь можете писать мне сообщения.")
-    except RetryAfter as e:
+    except TelegramRetryAfter as e:
         await asyncio.sleep(e.timeout)
         await message.answer("✅ Оплата прошла успешно! Теперь можете писать мне сообщения.")
+
     last_message_time[user_id] = time.time()
 
 # =========================
@@ -135,7 +140,7 @@ async def ai_chat(message: Message):
             await asyncio.sleep(MESSAGE_DELAY - elapsed)
         try:
             await message.answer("❌ Сначала оплатите доступ через /buy")
-        except RetryAfter as e:
+        except TelegramRetryAfter as e:
             await asyncio.sleep(e.timeout)
             await message.answer("❌ Сначала оплатите доступ через /buy")
         last_message_time[user_id] = time.time()
@@ -159,12 +164,11 @@ async def ai_chat(message: Message):
 
         try:
             await message.answer(ai_text)
-        except RetryAfter as e:
+        except TelegramRetryAfter as e:
             await asyncio.sleep(e.timeout)
             await message.answer(ai_text)
 
     except Exception as e:
-        # минимальный лог, чтобы Railway не заблокировал
         print("AI Error:", str(e))
 
     last_message_time[user_id] = time.time()
