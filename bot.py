@@ -1,31 +1,36 @@
 import asyncio
+import os
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import (
-    Message,
-    LabeledPrice,
-    PreCheckoutQuery
-)
+from aiogram.types import Message, LabeledPrice, PreCheckoutQuery
 from aiogram.filters import CommandStart
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
-
 from openai import OpenAI
 
-import config
+# -------------------------------
+# Проверка переменных окружения
+# -------------------------------
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+PAYMENTS_PROVIDER_TOKEN = os.getenv("PAYMENTS_PROVIDER_TOKEN")  # может быть пустым, если Telegram Stars
 
-bot = Bot(
-    token=config.BOT_TOKEN,
-    default=DefaultBotProperties(parse_mode=ParseMode.HTML)
-)
+if not BOT_TOKEN:
+    raise ValueError("❌ BOT_TOKEN не задан! Добавьте его в Variables сервиса Railway.")
+if not OPENAI_API_KEY:
+    raise ValueError("❌ OPENAI_API_KEY не задан! Добавьте его в Variables сервиса Railway.")
 
+# -------------------------------
+# Инициализация бота и OpenAI
+# -------------------------------
+bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
-client = OpenAI(api_key=config.OPENAI_API_KEY)
+client = OpenAI(api_key=OPENAI_API_KEY)
 
-# Простая память пользователей (в продакшене использовать БД)
+# Простая память пользователей (для примера)
 paid_users = set()
 
 # =========================
-#      START
+# Команда /start
 # =========================
 @dp.message(CommandStart())
 async def start(message: Message):
@@ -36,11 +41,10 @@ async def start(message: Message):
     )
 
 # =========================
-#      ПОКУПКА
+# Команда /buy — отправка счета
 # =========================
 @dp.message(F.text == "/buy")
 async def buy(message: Message):
-
     prices = [LabeledPrice(label="Доступ к AI", amount=10000)]  # 100.00 RUB или 100 Stars
 
     await bot.send_invoice(
@@ -48,29 +52,26 @@ async def buy(message: Message):
         title="Доступ к AI",
         description="Оплата доступа к AI боту",
         payload="ai_access",
-        provider_token=config.PAYMENTS_PROVIDER_TOKEN,  # Для Stars можно ""
+        provider_token=PAYMENTS_PROVIDER_TOKEN or "",
         currency="RUB",  # Для Stars используйте "XTR"
         prices=prices,
         start_parameter="ai-access",
     )
 
 # =========================
-#      ПОДТВЕРЖДЕНИЕ
+# Подтверждение оплаты
 # =========================
 @dp.pre_checkout_query()
 async def pre_checkout(pre_checkout_query: PreCheckoutQuery):
     await bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
 
-# =========================
-#      УСПЕШНАЯ ОПЛАТА
-# =========================
 @dp.message(F.successful_payment)
 async def successful_payment(message: Message):
     paid_users.add(message.from_user.id)
     await message.answer("✅ Оплата прошла успешно! Теперь можете писать мне сообщения.")
 
 # =========================
-#      AI ОТВЕТ
+# AI ответы
 # =========================
 @dp.message()
 async def ai_chat(message: Message):
@@ -93,17 +94,17 @@ async def ai_chat(message: Message):
         )
 
         ai_text = response.choices[0].message.content
-
         await message.answer(ai_text)
 
     except Exception as e:
         await message.answer(f"Ошибка: {e}")
 
 # =========================
-#      ЗАПУСК
+# Запуск бота
 # =========================
 async def main():
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
+
