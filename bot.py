@@ -1,5 +1,7 @@
 import asyncio
 import os
+import time
+from collections import defaultdict
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, LabeledPrice, PreCheckoutQuery
 from aiogram.filters import CommandStart
@@ -7,8 +9,6 @@ from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
 from aiogram.utils.exceptions import RetryAfter
 from openai import OpenAI
-from collections import defaultdict
-import time
 
 # -------------------------------
 # Проверка переменных окружения
@@ -35,7 +35,7 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 last_message_time = defaultdict(lambda: 0)
 MESSAGE_DELAY = 1  # секунда между сообщениями для одного пользователя
 
-# Простая память пользователей (для примера)
+# Простая память пользователей
 paid_users = set()
 
 # =========================
@@ -141,7 +141,6 @@ async def ai_chat(message: Message):
         last_message_time[user_id] = time.time()
         return
 
-    # Минимальная задержка, чтобы не попасть под flood
     elapsed = time.time() - last_message_time[user_id]
     if elapsed < MESSAGE_DELAY:
         await asyncio.sleep(MESSAGE_DELAY - elapsed)
