@@ -4,7 +4,7 @@ import time
 from collections import defaultdict
 
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message, LabeledPrice, PreCheckoutQuery
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.filters import CommandStart
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
@@ -12,11 +12,10 @@ from aiogram.exceptions import TelegramRetryAfter
 from openai import OpenAI
 
 # -------------------------------
-# Проверка переменных окружения
+# Переменные окружения
 # -------------------------------
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-PAYMENTS_PROVIDER_TOKEN = os.getenv("PAYMENTS_PROVIDER_TOKEN")  # можно пустым, если Telegram Stars
 
 if not BOT_TOKEN:
     raise ValueError("❌ BOT_TOKEN не задан! Добавьте его в Variables сервиса Railway.")
@@ -31,16 +30,34 @@ dp = Dispatcher()
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 # -------------------------------
-# Flood control (ограничение скорости)
+# Ограничение скорости сообщений
 # -------------------------------
 last_message_time = defaultdict(lambda: 0)
-MESSAGE_DELAY = 1  # секунда между сообщениями для одного пользователя
+MESSAGE_DELAY = 1  # секунда
 
-# Простая память пользователей
+# Память пользователей, оплативших доступ
 paid_users = set()
 
+# -------------------------------
+# TON-платёж
+# -------------------------------
+TON_ADDRESS = "EQCxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"  # твой TON кошелек
+TON_AMOUNT = 1.5  # сумма в TON
+
+# -------------------------------
+# Главное меню с кнопками
+# -------------------------------
+main_menu = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="/start")],
+        [KeyboardButton(text="/buy")],
+        [KeyboardButton(text="/confirm")],
+    ],
+    resize_keyboard=True
+)
+
 # =========================
-# Команда /start
+# /start — приветствие
 # =========================
 @dp.message(CommandStart())
 async def start(message: Message):
@@ -49,24 +66,23 @@ async def start(message: Message):
     if elapsed < MESSAGE_DELAY:
         await asyncio.sleep(MESSAGE_DELAY - elapsed)
 
+    welcome_text = (
+        f"👋 Привет, {message.from_user.first_name}!\n\n"
+        "🤖 <b>AI Бот</b>\n"
+        f"Доступ к AI стоит {TON_AMOUNT} TON\n"
+        "Используйте кнопки ниже для управления доступом."
+    )
+
     try:
-        await message.answer(
-            "🤖 <b>AI Бот</b>\n\n"
-            "Доступ к AI стоит 1000 KZT\n"
-            "Нажмите /buy чтобы оплатить."
-        )
+        await message.answer(welcome_text, reply_markup=main_menu)
     except TelegramRetryAfter as e:
         await asyncio.sleep(e.timeout)
-        await message.answer(
-            "🤖 <b>AI Бот</b>\n\n"
-            "Доступ к AI стоит 1000 KZT\n"
-            "Нажмите /buy чтобы оплатить."
-        )
+        await message.answer(welcome_text, reply_markup=main_menu)
 
     last_message_time[user_id] = time.time()
 
 # =========================
-# Команда /buy — отправка счета
+# /buy — отправка ссылки на TON
 # =========================
 @dp.message(F.text == "/buy")
 async def buy(message: Message):
@@ -75,57 +91,42 @@ async def buy(message: Message):
     if elapsed < MESSAGE_DELAY:
         await asyncio.sleep(MESSAGE_DELAY - elapsed)
 
-    prices = [LabeledPrice(label="Доступ к AI", amount=100000)]  # 1000.00 KZT
+    # Inline кнопка для оплаты TON
+    keyboard = InlineKeyboardMarkup().add(
+        InlineKeyboardButton(
+            text=f"Оплатить {TON_AMOUNT} TON",
+            url=f"https://ton.org/pay?address={TON_ADDRESS}&amount={TON_AMOUNT}"
+        )
+    )
+
+    text = (
+        f"💰 Оплатите {TON_AMOUNT} TON на кошелек:\n{TON_ADDRESS}\n\n"
+        "После подтверждения оплаты нажмите /confirm, чтобы активировать доступ к AI."
+    )
 
     try:
-        await bot.send_invoice(
-            chat_id=message.chat.id,
-            title="Доступ к AI",
-            description="Оплата доступа к AI боту",
-            payload="ai_access",
-            provider_token=PAYMENTS_PROVIDER_TOKEN or "",
-            currency="KZT",  # Для Stars используйте "XTR"
-            prices=prices,
-            start_parameter="ai-access",
-        )
+        await message.answer(text, reply_markup=keyboard)
     except TelegramRetryAfter as e:
         await asyncio.sleep(e.timeout)
-        await bot.send_invoice(
-            chat_id=message.chat.id,
-            title="Доступ к AI",
-            description="Оплата доступа к AI боту",
-            payload="ai_access",
-            provider_token=PAYMENTS_PROVIDER_TOKEN or "",
-            currency="RUB",
-            prices=prices,
-            start_parameter="ai-access",
-        )
+        await message.answer(text, reply_markup=keyboard)
 
     last_message_time[user_id] = time.time()
 
 # =========================
-# Подтверждение оплаты
+# /confirm — подтверждение оплаты
 # =========================
-@dp.pre_checkout_query()
-async def pre_checkout(pre_checkout_query: PreCheckoutQuery):
-    await bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
-
-@dp.message(F.successful_payment)
-async def successful_payment(message: Message):
+@dp.message(F.text == "/confirm")
+async def confirm_payment(message: Message):
     user_id = message.from_user.id
+
+    # TODO: можно подключить проверку через TON API
     paid_users.add(user_id)
 
-    elapsed = time.time() - last_message_time[user_id]
-    if elapsed < MESSAGE_DELAY:
-        await asyncio.sleep(MESSAGE_DELAY - elapsed)
-
     try:
-        await message.answer("✅ Оплата прошла успешно! Теперь можете писать мне сообщения.")
+        await message.answer("✅ Оплата подтверждена! Теперь вы можете писать мне сообщения.", reply_markup=main_menu)
     except TelegramRetryAfter as e:
         await asyncio.sleep(e.timeout)
-        await message.answer("✅ Оплата прошла успешно! Теперь можете писать мне сообщения.")
-
-    last_message_time[user_id] = time.time()
+        await message.answer("✅ Оплата подтверждена! Теперь вы можете писать мне сообщения.", reply_markup=main_menu)
 
 # =========================
 # AI ответы
@@ -139,10 +140,10 @@ async def ai_chat(message: Message):
         if elapsed < MESSAGE_DELAY:
             await asyncio.sleep(MESSAGE_DELAY - elapsed)
         try:
-            await message.answer("❌ Сначала оплатите доступ через /buy")
+            await message.answer("❌ Сначала оплатите доступ через /buy", reply_markup=main_menu)
         except TelegramRetryAfter as e:
             await asyncio.sleep(e.timeout)
-            await message.answer("❌ Сначала оплатите доступ через /buy")
+            await message.answer("❌ Сначала оплатите доступ через /buy", reply_markup=main_menu)
         last_message_time[user_id] = time.time()
         return
 
@@ -181,4 +182,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
