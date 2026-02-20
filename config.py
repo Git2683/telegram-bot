@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-BOT_TOKEN = os.getenv("8361410975:AAE3lEQX03HgzQ6leoGCd4AqSmulEIaTOa8")
+BOT_TOKEN = os.getenv("8361410975:AAE3lEQXO3HgzQ6leoGCd4AqSmulEIaTOa8")
 OPENAI_API_KEY = os.getenv("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")
 
 # Для Telegram Stars оставьте пустым
