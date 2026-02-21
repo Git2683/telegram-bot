@@ -36,7 +36,7 @@ CHANNEL_ID = -1003334403707  # <-- вставь ID канала
 CHANNEL_LINK = "https://t.me/ChatGPTcanal"  # <-- ссылка на канал
 
 TON_ADDRESS = "UQDWWcZlo7TV-ukEnBjn5dy8BZfbuGtUfymyNLECDScRfLWH"
-TON_AMOUNT = 1.5
+TON_AMOUNT = 1.7
 
 MESSAGE_DELAY = 1
 
@@ -201,13 +201,14 @@ async def ai_chat(message: Message):
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": "Ты полезный AI ассистент."},
-                {"role": "user", "content": message.text},
-            ],
-            temperature=0.7,
-        )
+    model="gpt-5-mini",  # или gpt-4o-mini
+    messages=[
+        {"role": "system", "content": "Ты полезный AI ассистент."},
+        {"role": "user", "content": message.text},
+    ],
+    temperature=0.7,
+    max_tokens=150  # ограничиваем длину ответа
+)
 
         ai_text = response.choices[0].message.content
         await message.answer(ai_text)
