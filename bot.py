@@ -16,8 +16,8 @@ from openai import OpenAI
 # -------------------------------
 # Переменные окружения
 # -------------------------------
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+BOT_TOKEN = os.getenv("8361410975:AAE3lEQXO3HgzQ6leoGCd4AqSmulEIaTOa8")
+OPENAI_API_KEY = os.getenv("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")
 CHANNEL_ID = int(os.getenv("CHANNEL_ID", "-1003334403707"))
 CHANNEL_LINK = os.getenv("CHANNEL_LINK", "https://t.me/ChatGPTcanal")
 
