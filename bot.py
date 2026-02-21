@@ -32,10 +32,10 @@ if not OPENAI_API_KEY:
 # -------------------------------
 # НАСТРОЙКИ
 # -------------------------------
-CHANNEL_ID = -1001234567890  # <-- вставь ID канала
-CHANNEL_LINK = "https://t.me/your_channel"  # <-- ссылка на канал
+CHANNEL_ID = -1003334403707  # <-- вставь ID канала
+CHANNEL_LINK = "https://t.me/ChatGPTcanal"  # <-- ссылка на канал
 
-TON_ADDRESS = "EQCxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+TON_ADDRESS = "UQDWWcZlo7TV-ukEnBjn5dy8BZfbuGtUfymyNLECDScRfLWH"
 TON_AMOUNT = 1.5
 
 MESSAGE_DELAY = 1
