@@ -1,21 +1,16 @@
 import asyncio
 import os
 import time
+import random
+import string
 from collections import defaultdict
 
+import requests
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import (
-    Message,
-    InlineKeyboardMarkup,
-    InlineKeyboardButton,
-    ReplyKeyboardMarkup,
-    KeyboardButton,
-    CallbackQuery,
-)
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.filters import CommandStart
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
-from aiogram.exceptions import TelegramRetryAfter
 from openai import OpenAI
 
 # -------------------------------
@@ -23,32 +18,37 @@ from openai import OpenAI
 # -------------------------------
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+CHANNEL_ID = int(os.getenv("CHANNEL_ID", "-1001234567890"))
+CHANNEL_LINK = os.getenv("CHANNEL_LINK", "https://t.me/your_channel")
 
-if not BOT_TOKEN:
-    raise ValueError("❌ BOT_TOKEN не задан!")
-if not OPENAI_API_KEY:
-    raise ValueError("❌ OPENAI_API_KEY не задан!")
+TON_ADDRESS = os.getenv("TON_ADDRESS", "EQCxxxxxxxxxxxxxx")
+TON_AMOUNT = float(os.getenv("TON_AMOUNT", 1.5))
+TON_API_ENDPOINT = os.getenv("TON_API_ENDPOINT")  # Chainstack/GetBlock API
+TON_API_KEY = os.getenv("TON_API_KEY")  # ключ к TON API
 
-# -------------------------------
-# НАСТРОЙКИ
-# -------------------------------
-CHANNEL_ID = -1003334403707  # <-- вставь ID канала
-CHANNEL_LINK = "https://t.me/ChatGPTcanal"  # <-- ссылка на канал
-
-TON_ADDRESS = "UQDWWcZlo7TV-ukEnBjn5dy8BZfbuGtUfymyNLECDScRfLWH"
-TON_AMOUNT = 1.7
-
-MESSAGE_DELAY = 1
+if not BOT_TOKEN or not OPENAI_API_KEY or not TON_API_ENDPOINT or not TON_API_KEY:
+    raise ValueError("❌ Не все переменные окружения заданы!")
 
 # -------------------------------
-# Инициализация
+# Инициализация бота и OpenAI
 # -------------------------------
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
 client = OpenAI(api_key=OPENAI_API_KEY)
 
+# -------------------------------
+# Ограничение скорости сообщений
+# -------------------------------
 last_message_time = defaultdict(lambda: 0)
-paid_users = set()
+MESSAGE_DELAY = 1  # секунда
+
+# -------------------------------
+# Пользователи
+# -------------------------------
+paid_users = set()         # доступ разрешён
+payment_ids = {}           # уникальные метки {user_id: payment_id}
+pending_payments = {}      # ожидают подтверждения {user_id: username/addr}
+payment_cache = {}         # кэш проверок TON {user_id: (True/False, timestamp)}
 
 # -------------------------------
 # Главное меню
@@ -56,174 +56,180 @@ paid_users = set()
 main_menu = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="/start")],
-        [KeyboardButton(text="/buy")],
-        [KeyboardButton(text="/confirm")],
+        [KeyboardButton(text="/buy")]
     ],
-    resize_keyboard=True,
+    resize_keyboard=True
 )
 
-# -------------------------------
-# Проверка подписки
-# -------------------------------
-async def check_subscription(user_id: int) -> bool:
-    try:
-        member = await bot.get_chat_member(CHANNEL_ID, user_id)
-        return member.status in ["member", "administrator", "creator"]
-    except Exception:
-        return False
-
-
-# -------------------------------
-# Клавиатура подписки
-# -------------------------------
-def subscription_keyboard():
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="📢 Подписаться", url=CHANNEL_LINK)],
-            [InlineKeyboardButton(text="✅ Проверить", callback_data="check_sub")],
-        ]
-    )
-
+# =========================
+# Генерация уникальной метки
+# =========================
+def generate_payment_id(user_id: int) -> str:
+    token = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+    payment_ids[user_id] = token
+    return token
 
 # =========================
-# /start
+# Проверка TON с кэшированием
+# =========================
+def check_ton_payment_cached(user_id: int, ton_amount: float) -> bool:
+    now = time.time()
+    if user_id in payment_cache:
+        result, timestamp = payment_cache[user_id]
+        if now - timestamp < 180:
+            return result
+
+    payment_id = payment_ids.get(user_id)
+    if not payment_id:
+        payment_cache[user_id] = (False, now)
+        return False
+
+    try:
+        params = {"address": TON_ADDRESS, "limit": 50}
+        headers = {"Authorization": f"Bearer {TON_API_KEY}"}
+        response = requests.get(TON_API_ENDPOINT + "/getTransactions", params=params, headers=headers)
+        response.raise_for_status()
+        txs = response.json()
+
+        for tx in txs:
+            in_msg = tx.get("in_msg", {})
+            comment = in_msg.get("comment", "")
+            amount = float(in_msg.get("value", 0))
+            if payment_id in comment and amount >= ton_amount:
+                payment_cache[user_id] = (True, now)
+                return True
+
+        payment_cache[user_id] = (False, now)
+        return False
+    except Exception as e:
+        print("TON API Error:", e)
+        payment_cache[user_id] = (False, now)
+        return False
+
+# =========================
+# /start — карточка информации
 # =========================
 @dp.message(CommandStart())
 async def start(message: Message):
     user_id = message.from_user.id
+    elapsed = time.time() - last_message_time[user_id]
+    if elapsed < MESSAGE_DELAY:
+        await asyncio.sleep(MESSAGE_DELAY - elapsed)
 
-    if not await check_subscription(user_id):
-        await message.answer(
-            "❗ Для использования бота подпишитесь на канал.",
-            reply_markup=subscription_keyboard(),
-        )
-        return
-
-    await message.answer(
-        f"👋 Привет, {message.from_user.first_name}!\n\n"
-        "🤖 <b>AI Бот</b>\n"
-        f"Доступ стоит {TON_AMOUNT} TON",
-        reply_markup=main_menu,
+    info_card = (
+        "💠 <b>Информация о боте</b>\n"
+        "🤖 AI Бот на GPT-5 mini — твой помощник.\n"
+        f"💰 Стоимость доступа: <b>{TON_AMOUNT} TON</b>\n"
+        f"🔔 Подпишись на канал: {CHANNEL_LINK}\n"
+        "📝 Используй /buy для оплаты и автоматической активации доступа.\n"
     )
 
+    await message.answer(info_card, reply_markup=main_menu)
+    last_message_time[user_id] = time.time()
 
 # =========================
-# Проверка кнопки подписки
-# =========================
-@dp.callback_query(F.data == "check_sub")
-async def check_sub_callback(callback: CallbackQuery):
-    user_id = callback.from_user.id
-
-    if await check_subscription(user_id):
-        await callback.message.edit_text(
-            "✅ Подписка подтверждена! Теперь используйте /start"
-        )
-    else:
-        await callback.answer("❌ Вы не подписаны!", show_alert=True)
-
-
-# =========================
-# /buy
+# /buy — карточка оплаты
 # =========================
 @dp.message(F.text == "/buy")
 async def buy(message: Message):
     user_id = message.from_user.id
+    elapsed = time.time() - last_message_time[user_id]
+    if elapsed < MESSAGE_DELAY:
+        await asyncio.sleep(MESSAGE_DELAY - elapsed)
 
-    if not await check_subscription(user_id):
-        await message.answer(
-            "❌ Сначала подпишитесь на канал.",
-            reply_markup=subscription_keyboard(),
-        )
+    # Проверка подписки
+    try:
+        member = await bot.get_chat_member(chat_id=CHANNEL_ID, user_id=user_id)
+        if member.status in ["left", "kicked"]:
+            await message.answer(f"❌ Сначала подпишись на канал: {CHANNEL_LINK}", reply_markup=main_menu)
+            return
+    except Exception:
+        await message.answer("❌ Бот должен быть администратором канала для проверки подписки.", reply_markup=main_menu)
         return
 
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text=f"Оплатить {TON_AMOUNT} TON",
-                    url=f"https://ton.org/pay?address={TON_ADDRESS}&amount={TON_AMOUNT}",
-                )
-            ]
-        ]
-    )
+    payment_id = generate_payment_id(user_id)
+    pending_payments[user_id] = message.from_user.username or str(user_id)
 
-    await message.answer(
-        f"💰 Оплатите {TON_AMOUNT} TON на кошелек:\n<code>{TON_ADDRESS}</code>\n\n"
-        "После оплаты нажмите /confirm",
-        reply_markup=keyboard,
-    )
-
-
-# =========================
-# /confirm
-# =========================
-@dp.message(F.text == "/confirm")
-async def confirm_payment(message: Message):
-    user_id = message.from_user.id
-
-    if not await check_subscription(user_id):
-        await message.answer(
-            "❌ Вы должны быть подписаны на канал.",
-            reply_markup=subscription_keyboard(),
+    keyboard = InlineKeyboardMarkup().add(
+        InlineKeyboardButton(
+            text=f"💳 Оплатить {TON_AMOUNT} TON",
+            url=f"https://ton.org/pay?address={TON_ADDRESS}&amount={TON_AMOUNT}&comment={payment_id}"
         )
-        return
-
-    paid_users.add(user_id)
-
-    await message.answer(
-        "✅ Оплата подтверждена! Теперь вы можете писать мне.",
-        reply_markup=main_menu,
     )
 
+    payment_card = (
+        "💎 <b>Оплата доступа</b>\n"
+        f"💳 Уникальный код: <b>{payment_id}</b>\n"
+        f"💰 Сумма: {TON_AMOUNT} TON\n"
+        "✅ После оплаты бот автоматически активирует доступ.\n"
+        "🕒 Проверка платежей каждые 60 секунд."
+    )
+
+    await message.answer(payment_card, reply_markup=keyboard)
+    last_message_time[user_id] = time.time()
 
 # =========================
-# AI чат
+# AI чат — карточка ответа
 # =========================
 @dp.message()
 async def ai_chat(message: Message):
     user_id = message.from_user.id
-
-    # Проверка подписки
-    if not await check_subscription(user_id):
-        await message.answer(
-            "❌ Вы должны быть подписаны на канал.",
-            reply_markup=subscription_keyboard(),
-        )
-        return
-
-    # Проверка оплаты
     if user_id not in paid_users:
-        await message.answer(
-            "❌ Сначала оплатите доступ через /buy",
-            reply_markup=main_menu,
-        )
+        await message.answer(f"❌ Сначала оплатите доступ через /buy и подпишитесь на канал {CHANNEL_LINK}", reply_markup=main_menu)
         return
+    if not message.text:
+        await message.answer("❌ Пожалуйста, отправьте текстовое сообщение.")
+        return
+
+    elapsed = time.time() - last_message_time[user_id]
+    if elapsed < MESSAGE_DELAY:
+        await asyncio.sleep(MESSAGE_DELAY - elapsed)
 
     try:
         response = client.chat.completions.create(
-    model="gpt-5-mini",  # или gpt-4o-mini
-    messages=[
-        {"role": "system", "content": "Ты полезный AI ассистент."},
-        {"role": "user", "content": message.text},
-    ],
-    temperature=0.7,
-    max_tokens=150  # ограничиваем длину ответа
-)
+            model="gpt-5-mini",
+            messages=[
+                {"role": "system", "content": "Ты полезный AI ассистент."},
+                {"role": "user", "content": message.text},
+            ],
+            temperature=0.7,
+            max_tokens=150
+        )
 
         ai_text = response.choices[0].message.content
-        await message.answer(ai_text)
+        ai_card = f"🤖 <b>AI Ответ:</b>\n{ai_text}"
+        await message.answer(ai_card)
 
     except Exception as e:
-        print("AI Error:", str(e))
-        await message.answer("⚠️ Ошибка AI, попробуйте позже.")
+        await message.answer(f"⚠️ AI ошибка: {str(e)}")
 
+    last_message_time[user_id] = time.time()
 
 # =========================
-# Запуск
+# Фоновая авто-проверка платежей с кэшированием
+# =========================
+async def auto_check_payments():
+    while True:
+        for user_id, username in list(pending_payments.items()):
+            if check_ton_payment_cached(user_id, TON_AMOUNT):
+                paid_users.add(user_id)
+                del pending_payments[user_id]
+                try:
+                    await bot.send_message(
+                        user_id,
+                        "✅ <b>Оплата подтверждена автоматически!</b>\nТеперь вы можете писать боту и получать AI ответы.",
+                        reply_markup=main_menu
+                    )
+                except Exception as e:
+                    print("Ошибка отправки сообщения:", e)
+        await asyncio.sleep(60)
+
+# =========================
+# Запуск бота
 # =========================
 async def main():
+    asyncio.create_task(auto_check_payments())
     await dp.start_polling(bot)
-
 
 if __name__ == "__main__":
     asyncio.run(main())
