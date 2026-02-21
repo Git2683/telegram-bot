@@ -16,15 +16,15 @@ from openai import OpenAI
 # -------------------------------
 # Переменные окружения
 # -------------------------------
-BOT_TOKEN = os.getenv("8361410975:AAE3lEQXO3HgzQ6leoGCd4AqSmulEIaTOa8")
-OPENAI_API_KEY = os.getenv("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")
-CHANNEL_ID = int(os.getenv("CHANNEL_ID", "-1003334403707"))
-CHANNEL_LINK = os.getenv("CHANNEL_LINK", "https://t.me/ChatGPTcanal")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+CHANNEL_ID = int(os.getenv("CHANNEL_ID", "-1001234567890"))
+CHANNEL_LINK = os.getenv("CHANNEL_LINK", "https://t.me/your_channel")
 
-TON_ADDRESS = os.getenv("TON_ADDRESS", "UQDWWcZlo7TV-ukEnBjn5dy8BZfbuGtUfymyNLECDScRfLWH")
+TON_ADDRESS = os.getenv("TON_ADDRESS", "EQCxxxxxxxxxxxxxx")
 TON_AMOUNT = float(os.getenv("TON_AMOUNT", 1.5))
-TON_API_ENDPOINT = os.getenv("https://toncenter.com/api/v2")  # Chainstack/GetBlock API
-TON_API_KEY = os.getenv("341fa91bde22579276cd0d9e49ac19c6343136d27494da8b7fbc4b51e31892cc")  # ключ к TON API
+TON_API_ENDPOINT = os.getenv("TON_API_ENDPOINT")  # Chainstack/GetBlock API
+TON_API_KEY = os.getenv("TON_API_KEY")  # ключ к TON API
 
 if not BOT_TOKEN or not OPENAI_API_KEY or not TON_API_ENDPOINT or not TON_API_KEY:
     raise ValueError("❌ Не все переменные окружения заданы!")
